@@ -90,6 +90,9 @@ namespace Greenside
 
             float speed = Mathf.Lerp(club.minLaunchSpeed, club.maxLaunchSpeed, Mathf.Clamp01(power01));
 
+            // Wake the ball into dynamic, anti-tunnel (Continuous) physics for the shot.
+            _rb.isKinematic = false;
+            _rb.collisionDetectionMode = CollisionDetectionMode.Continuous;
             _rb.linearVelocity = Vector3.zero;
             _rb.angularVelocity = Vector3.zero;
             // Impulse = m * dv, so the velocity change is exactly launchDir * speed.
@@ -175,11 +178,25 @@ namespace Greenside
         /// <summary>Return the ball to the tee, stationary.</summary>
         public void ResetToTee()
         {
+            // Freeze the ball on the tee as a kinematic body so it can't fall through
+            // colliders that haven't finished registering with the physics engine yet.
+            // It goes dynamic (and Continuous) again the moment it is launched.
+            _rb.isKinematic = false;
+            _rb.collisionDetectionMode = CollisionDetectionMode.Discrete;
             _rb.linearVelocity = Vector3.zero;
             _rb.angularVelocity = Vector3.zero;
             transform.position = _teePosition;
+            _rb.isKinematic = true;
             _restTimer = 0f;
             State = BallState.Teed;
+        }
+
+        /// <summary>Set a new tee position and place the ball there, stationary
+        /// (used when a hole is generated).</summary>
+        public void PlaceOnTee(Vector3 teePos)
+        {
+            _teePosition = teePos;
+            ResetToTee();
         }
 
         private static float HorizontalDistance(Vector3 a, Vector3 b)
