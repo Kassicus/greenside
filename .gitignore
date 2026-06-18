@@ -58,6 +58,10 @@ sysinfo.txt
 *.unitypackage
 *.app
 
+# Generated Xcode / standalone build output
+/Build/
+/[Bb]uilds/
+
 # Crashlytics generated file
 crashlytics-build.properties
 
