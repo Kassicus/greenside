@@ -14,13 +14,9 @@ namespace Greenside
     [CreateAssetMenu(fileName = "SwingTuning", menuName = "Greenside/Swing Tuning")]
     public class SwingTuning : ScriptableObject
     {
-        [Header("Launch (m/s) — full vs. weakest swing")]
-        [Tooltip("Launch speed at full power (power01 = 1).")]
-        public float maxLaunchSpeed = 60f;
-        [Tooltip("Launch speed at the weakest registered swing (power01 = 0).")]
-        public float minLaunchSpeed = 8f;
-        [Tooltip("Prototype launch elevation in degrees. Moves to the Club SO in Phase 3.")]
-        public float defaultLoftDegrees = 16f;
+        // Per-club launch values (loft, full/weak launch speed, spin factor) now
+        // live on the Club ScriptableObject (Assets > Create > Greenside > Club).
+        // This asset holds only the GLOBAL knobs shared across every club.
 
         [Header("Curve / sidespin")]
         [Tooltip("Sidespin (rad/s about the up axis) applied at full curve.")]
@@ -45,6 +41,11 @@ namespace Greenside
         public float linearDamping = 0.05f;
         [Tooltip("Angular damping so sidespin bleeds off over the flight.")]
         public float angularDamping = 0.4f;
+
+        [Header("Ground roll-out (interim — per-surface physics comes in Phase 6)")]
+        [Tooltip("Per-second fractional damping on the ball's horizontal speed and spin " +
+                 "while it is on the ground. Higher = less roll. Does not affect carry.")]
+        public float groundRollDrag = 2.5f;
 
         [Header("Rest detection")]
         [Tooltip("Ball is considered stopped below this speed (m/s)...")]

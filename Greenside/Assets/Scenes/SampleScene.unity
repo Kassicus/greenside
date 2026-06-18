@@ -589,7 +589,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 42c3a4cb5d9404c7ab2a77d7cb6dde45, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Greenside.BallController
-  tuning: {fileID: 0}
+  tuning: {fileID: 11400000, guid: 82d3cffbc3a0947dc9cf42511b6a5fda, type: 2}
 --- !u!54 &745715119
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -868,6 +868,7 @@ GameObject:
   - component: {fileID: 1285379625}
   - component: {fileID: 1285379624}
   - component: {fileID: 1285379623}
+  - component: {fileID: 1285379626}
   m_Layer: 0
   m_Name: SwingSystem
   m_TagString: Untagged
@@ -890,6 +891,7 @@ MonoBehaviour:
   ball: {fileID: 745715118}
   input: {fileID: 1285379624}
   tuning: {fileID: 11400000, guid: 82d3cffbc3a0947dc9cf42511b6a5fda, type: 2}
+  bag: {fileID: 1285379626}
   autoResetDelay: 1.5
 --- !u!114 &1285379624
 MonoBehaviour:
@@ -919,6 +921,34 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1285379626
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1285379622}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 358c86109517445d8bd980d168e0d184, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Greenside.Bag
+  clubs:
+  - {fileID: 11400000, guid: 3488a08f24cf340fb9c8749ce6c0e823, type: 2}
+  - {fileID: 11400000, guid: 1dc016f1efa084b2ea1b0b271062396a, type: 2}
+  - {fileID: 11400000, guid: 6c00139c4417e47198bd91145a06c6a2, type: 2}
+  - {fileID: 11400000, guid: 24fa501c2d8b74347a610c888ccd44d5, type: 2}
+  - {fileID: 11400000, guid: a2efecc2c21ca4be18fdfa0a95926f2f, type: 2}
+  - {fileID: 11400000, guid: bab56135436c3476da7a9a268f067ab0, type: 2}
+  - {fileID: 11400000, guid: 222e5fdc910de4977a8526f8f5949488, type: 2}
+  - {fileID: 11400000, guid: 4778fe7d54df3403a86bc057b922082b, type: 2}
+  - {fileID: 11400000, guid: e4cfb132ec22c4ed3a23da45656f499f, type: 2}
+  - {fileID: 11400000, guid: d251b16ad99664404a1f5657af73d03d, type: 2}
+  - {fileID: 11400000, guid: 9dc389e517c66404c8b5b8bf15763551, type: 2}
+  - {fileID: 11400000, guid: b1708e8ae42e747f1b55953216f25cf2, type: 2}
+  - {fileID: 11400000, guid: f7aebaafe458d4c58af460f30937a8e2, type: 2}
+  - {fileID: 11400000, guid: 503e68007cda14e3e9b43f1be89be626, type: 2}
+  currentIndex: 0
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0

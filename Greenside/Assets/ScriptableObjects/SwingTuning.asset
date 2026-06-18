@@ -12,10 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 899def151c0e44ed4bd0a10077de73de, type: 3}
   m_Name: SwingTuning
   m_EditorClassIdentifier: Assembly-CSharp::Greenside.SwingTuning
-  maxLaunchSpeed: 120
-  minLaunchSpeed: 8
-  defaultLoftDegrees: 25
-  maxSidespin: 50
+  maxSidespin: 30
   curveSensitivity: 12
   curveDeadzone: 0.06
   magnusCoefficient: 0.0015
