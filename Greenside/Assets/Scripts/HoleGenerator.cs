@@ -22,7 +22,7 @@ namespace Greenside
     [RequireComponent(typeof(MeshFilter), typeof(MeshRenderer), typeof(MeshCollider))]
     public class HoleGenerator : MonoBehaviour
     {
-        private enum Surface { Fairway = 0, Green = 1, Rough = 2 }
+        public enum Surface { Fairway = 0, Green = 1, Rough = 2 }
 
         [Header("Seed")]
         public int seed = 12345;
@@ -46,6 +46,14 @@ namespace Greenside
         [Tooltip("Height of the tee peg the ball sits on.")]
         public float teePegHeight = 0.35f;
 
+        [Header("Cup")]
+        [Tooltip("Capture radius of the cup at the pin (arcade-generous).")]
+        public float cupRadius = 0.6f;
+
+        [Header("Lie")]
+        [Tooltip("Top-end power multiplier when playing from the rough (the club's minimum power still applies).")]
+        [Range(0.2f, 1f)] public float roughPowerMultiplier = 0.6f;
+
         [Header("Mesh")]
         [Tooltip("Grid cell size — larger = chunkier low-poly facets.")]
         public float cellSize = 4f;
@@ -66,6 +74,13 @@ namespace Greenside
         [Header("References")]
         public BallController ball;
 
+        [Header("Hole preview")]
+        [Tooltip("A Cinemachine camera (priority higher than the follow cam) that reveals " +
+                 "the hole at the start, then blends to the tee follow cam.")]
+        public Transform previewCamera;
+        [Tooltip("Seconds to show the hole overview before blending to the follow camera.")]
+        public float previewDuration = 3f;
+
         // --- generated state ---
         private readonly List<Vector3> _centerline = new List<Vector3>();
         private Vector3 _teePos;
@@ -74,12 +89,43 @@ namespace Greenside
         private Vector3 _teePegTop;
         private Transform _markers;
         private Mesh _colliderMesh;
+        private float _previewEndTime = -1f;
 
         private void Start()
         {
             if (randomizeSeedOnPlay) seed = (int)(System.DateTime.Now.Ticks & 0x7fffffff);
             Generate();
             PlaceBallOnTee();
+            if (ball != null) ball.SetHole(_pinPos, cupRadius);
+            StartPreview();
+        }
+
+        private void Update()
+        {
+            // End the hole preview after its duration: disabling the higher-priority
+            // preview camera lets the Cinemachine brain blend down to the follow cam.
+            if (_previewEndTime > 0f && Time.time >= _previewEndTime)
+            {
+                if (previewCamera != null) previewCamera.gameObject.SetActive(false);
+                _previewEndTime = -1f;
+            }
+        }
+
+        private void StartPreview()
+        {
+            if (previewCamera == null || previewDuration <= 0f) return;
+
+            // Frame the whole hole from up and behind the tee, looking toward the green.
+            Vector3 dir = _pinPos - _teePos;
+            dir.y = 0f;
+            dir = dir.sqrMagnitude < 1e-3f ? Vector3.forward : dir.normalized;
+            float len = Vector3.Distance(_teePos, _pinPos);
+            Vector3 mid = (_teePos + _pinPos) * 0.5f;
+            Vector3 camPos = _teePos + Vector3.up * (len * 0.35f) - dir * (len * 0.12f);
+
+            previewCamera.SetPositionAndRotation(camPos, Quaternion.LookRotation((mid - camPos).normalized, Vector3.up));
+            previewCamera.gameObject.SetActive(true);
+            _previewEndTime = Time.time + previewDuration;
         }
 
         private void PlaceBallOnTee()
@@ -252,6 +298,13 @@ namespace Greenside
             return Surface.Rough;
         }
 
+        /// <summary>The surface under a world position (XZ).</summary>
+        public Surface SurfaceAtWorld(Vector3 worldPos) => SurfaceAt(worldPos.x, worldPos.z);
+
+        /// <summary>Top-end power multiplier for the lie at a world position.</summary>
+        public float PowerMultiplierAt(Vector3 worldPos)
+            => SurfaceAt(worldPos.x, worldPos.z) == Surface.Rough ? roughPowerMultiplier : 1f;
+
         private float HeightAt(float x, float z)
         {
             // Flat, raised tee box at the start of the hole.
@@ -322,6 +375,7 @@ namespace Greenside
             pole.transform.SetParent(_markers, false);
             pole.transform.position = _pinPos + Vector3.up * 1.5f;
             pole.transform.localScale = new Vector3(0.12f, 1.5f, 0.12f);
+            pole.GetComponent<MeshRenderer>().sharedMaterial = MakeMaterial(new Color(0.92f, 0.92f, 0.92f));
 
             var flag = GameObject.CreatePrimitive(PrimitiveType.Cube);
             flag.name = "Flag";
@@ -329,6 +383,16 @@ namespace Greenside
             flag.transform.SetParent(pole.transform, false);
             flag.transform.localScale = new Vector3(6f, 0.5f, 0.05f);
             flag.transform.localPosition = new Vector3(3f, 0.7f, 0f);
+            flag.GetComponent<MeshRenderer>().sharedMaterial = MakeMaterial(new Color(0.95f, 0.85f, 0.1f));
+
+            // Cup: a dark disk at the pin marking the hole (collider off — cosmetic).
+            var cup = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            cup.name = "Cup";
+            cup.GetComponent<Collider>().enabled = false;
+            cup.transform.SetParent(_markers, false);
+            cup.transform.position = _pinPos + Vector3.up * 0.02f;
+            cup.transform.localScale = new Vector3(cupRadius * 2f, 0.02f, cupRadius * 2f);
+            cup.GetComponent<MeshRenderer>().sharedMaterial = MakeMaterial(new Color(0.04f, 0.04f, 0.04f));
 
             // Tee peg: a small box with a flat top the ball sits on. Its collider is a
             // primitive (live immediately, no mesh cooking), so the ball rests on it
@@ -340,6 +404,7 @@ namespace Greenside
             const float pegWidth = 0.3f;
             peg.transform.position = new Vector3(_teePos.x, _teeboxHeight + teePegHeight * 0.5f, _teePos.z);
             peg.transform.localScale = new Vector3(pegWidth, teePegHeight, pegWidth);
+            peg.GetComponent<MeshRenderer>().sharedMaterial = MakeMaterial(new Color(0.8f, 0.12f, 0.12f));
             _teePegTop = new Vector3(_teePos.x, _teeboxHeight + teePegHeight, _teePos.z);
         }
 

@@ -73,11 +73,13 @@ flows smoothly on a real iPhone at a stable frame rate.
 The signature mechanic. The player swipes a finger **down and then up** to swing.
 - Using Enhanced Touch, capture touch positions (with timestamps) into a buffer from touch-begin,
   through the reversal, to touch-end.
-- **Power** is derived from the speed/length of the up-stroke.
-- **Curve (cut/slice/hook)** is derived from the **lateral straightness** of the path: measure
-  signed horizontal deviation from a straight vertical line (e.g. signed drift or signed area).
-  Dead-straight = pure shot; drift one way = slice, the other = hook. Respect handedness (make it
-  a setting; default right-handed).
+- **Power** is derived from the **length of the down-stroke** (the "backswing" — how far back the
+  club is brought). Using length, not speed, makes a given power easy to repeat — important for
+  controlled partial shots (e.g. wedges near the green). Locks at the reversal.
+- **Curve (cut/slice/draw/fade)** is derived from the **lateral straightness of the up-stroke**
+  (the through-swing path): measure signed horizontal deviation from a straight vertical line
+  (e.g. signed drift or signed area). Dead-straight = pure shot; drift one way = slice/fade, the
+  other = hook/draw. Respect handedness (make it a setting; default right-handed).
 - Map curve to ball **sidespin**.
 - Provide light visual feedback during the swing (power meter / path trail) so the gesture is learnable.
 

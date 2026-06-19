@@ -27,8 +27,9 @@ namespace Greenside
         /// <summary>True while a swipe is in progress (for HUD feedback).</summary>
         public bool IsSwiping { get; private set; }
 
-        /// <summary>0..1 length of the current up-stroke (live power-meter feedback).</summary>
-        public float LiveUpStroke { get; private set; }
+        /// <summary>0..1 live estimate of the shot power as the up-stroke is made
+        /// (running average up-stroke speed, mapped the same way as the final shot).</summary>
+        public float LivePower { get; private set; }
 
         private struct Sample
         {
@@ -38,6 +39,7 @@ namespace Greenside
 
         private readonly List<Sample> _buffer = new List<Sample>(256);
         private float _runningMinY;
+        private float _startY;
         private bool _wasTouching;
 
         private void OnEnable()
@@ -104,23 +106,29 @@ namespace Greenside
             _buffer.Clear();
             _buffer.Add(new Sample { pos = pos, time = Time.unscaledTime });
             _runningMinY = pos.y;
+            _startY = pos.y;
             IsSwiping = true;
-            LiveUpStroke = 0f;
+            LivePower = 0f;
         }
 
         private void AddSample(Vector2 pos)
         {
             _buffer.Add(new Sample { pos = pos, time = Time.unscaledTime });
             if (pos.y < _runningMinY) _runningMinY = pos.y;
-            // Live up-stroke = how far back up we've come from the lowest point.
-            LiveUpStroke = Mathf.Clamp01((pos.y - _runningMinY) / Screen.height
-                                         / Mathf.Max(0.01f, tuning ? tuning.minUpStrokeFraction * 4f : 0.4f));
+
+            // Live power = backswing length so far (how far down we've pulled). It rises
+            // through the down-stroke and locks once the finger reverses upward.
+            if (tuning != null)
+            {
+                float backswing = (_startY - _runningMinY) / Screen.height;
+                LivePower = Mathf.Clamp01(backswing / tuning.referenceBackswing);
+            }
         }
 
         private void End()
         {
             IsSwiping = false;
-            LiveUpStroke = 0f;
+            LivePower = 0f;
 
             if (_buffer.Count < 3) return;
 
@@ -137,26 +145,28 @@ namespace Greenside
             }
 
             int last = _buffer.Count - 1;
-            if (last - reversal < 2) return; // no meaningful up-stroke
+            Vector2 startPos = _buffer[0].pos;
+            Vector2 reversalPos = _buffer[reversal].pos;
+            Vector2 endPos = _buffer[last].pos;
 
-            Sample start = _buffer[reversal];
-            Sample finish = _buffer[last];
+            // Power from the backswing (down-stroke) length — how far back the club was
+            // brought. Length, not speed, so a given power is easy to repeat.
+            float backswing = (startPos.y - reversalPos.y) / Screen.height;
+            if (backswing < tuning.minBackswingFraction) return;        // not a real swing
+            float power01 = Mathf.Clamp01(backswing / tuning.referenceBackswing);
 
-            float vertical = finish.pos.y - start.pos.y;
-            if (vertical < tuning.minUpStrokeFraction * Screen.height) return; // tap / flick
+            // The through-swing (up-stroke) must exist to fire, and its lateral path
+            // sets the curve.
+            float upStroke = (endPos.y - reversalPos.y) / Screen.height;
+            if (upStroke < tuning.minUpStrokeFraction) return;          // incomplete swing
 
-            // Power from up-stroke speed in screen-heights per second.
-            float dt = Mathf.Max(1e-4f, finish.time - start.time);
-            float speed = (vertical / Screen.height) / dt;
-            float power01 = Mathf.Clamp01(speed / tuning.referenceSwipeSpeed);
-
-            // Curve from mean signed horizontal offset of the up-stroke relative to
-            // a vertical line through the reversal point. + = drifted right = slice.
+            // Curve from the mean signed horizontal offset of the up-stroke relative to
+            // a vertical line through the reversal. + = drifted right = slice/fade (RH).
             float meanOffset = 0f;
             int count = 0;
             for (int i = reversal; i <= last; i++)
             {
-                meanOffset += (_buffer[i].pos.x - start.pos.x);
+                meanOffset += (_buffer[i].pos.x - reversalPos.x);
                 count++;
             }
             meanOffset = (meanOffset / count) / Screen.height;

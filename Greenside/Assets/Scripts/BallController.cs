@@ -16,7 +16,7 @@ namespace Greenside
     {
         public SwingTuning tuning;
 
-        public enum BallState { Teed, InPlay, Resting }
+        public enum BallState { Teed, InPlay, Resting, Holed }
         public BallState State { get; private set; } = BallState.Teed;
 
         /// <summary>Fired when a shot is launched.</summary>
@@ -24,12 +24,20 @@ namespace Greenside
         /// <summary>Fired when the ball comes to rest, with total distance (carry + roll) in yards.</summary>
         public event Action<float> OnRest;
 
+        /// <summary>Fired when the ball is holed.</summary>
+        public event Action OnHoled;
+
         /// <summary>Live horizontal distance from the launch point, in yards (0 at the tee).</summary>
         public float DistanceYards =>
             (tuning != null ? tuning.yardsPerMeter : 1f) * HorizontalDistance(_launchPosition, transform.position);
 
         /// <summary>Carry (distance to first landing) in yards, or -1 if not recorded (e.g. a putt that never left the ground).</summary>
         public float CarryYards => _carryYards;
+
+        /// <summary>Horizontal distance from the ball to the pin in yards, or -1 if no hole is set.</summary>
+        public float DistanceToPinYards => _hasHole
+            ? HorizontalDistance(transform.position, _pinPos) * (tuning != null ? tuning.yardsPerMeter : 1f)
+            : -1f;
 
         private Rigidbody _rb;
         private Vector3 _teePosition;
@@ -39,6 +47,11 @@ namespace Greenside
         private bool _carryRecorded;
         private float _carryYards = -1f;
         private bool _grounded;
+        private Vector3 _pinPos;
+        private float _cupRadius;
+        private bool _hasHole;
+        private float _radius = 0.2f;
+        private Collider _col;
 
         private void Awake()
         {
@@ -57,6 +70,10 @@ namespace Greenside
             _rb.mass = tuning.mass;
             _rb.linearDamping = tuning.linearDamping;
             _rb.angularDamping = tuning.angularDamping;
+
+            var sphere = GetComponent<SphereCollider>();
+            _col = sphere;
+            _radius = sphere != null ? sphere.radius * transform.lossyScale.x : 0.2f;
         }
 
         private void Start()
@@ -68,9 +85,10 @@ namespace Greenside
         /// Launch the ball with the selected club. headingFlat is a horizontal aim
         /// direction; the club supplies loft, launch-speed range and spin factor;
         /// power01 (0..1) scales speed; signedCurve (-1..+1) sets sidespin
-        /// (+ = slice/right, - = hook/left).
+        /// (+ = slice/right, - = hook/left); powerMultiplier caps the top-end speed
+        /// for the lie surface (e.g. rough) without reducing the club's minimum.
         /// </summary>
-        public void Launch(float power01, float signedCurve, Vector3 headingFlat, Club club)
+        public void Launch(float power01, float signedCurve, Vector3 headingFlat, Club club, float powerMultiplier)
         {
             if (club == null)
             {
@@ -88,11 +106,16 @@ namespace Greenside
             float loftRad = club.loftDegrees * Mathf.Deg2Rad;
             Vector3 launchDir = headingFlat * Mathf.Cos(loftRad) + Vector3.up * Mathf.Sin(loftRad);
 
-            float speed = Mathf.Lerp(club.minLaunchSpeed, club.maxLaunchSpeed, Mathf.Clamp01(power01));
+            // The lie multiplier caps the top end (e.g. rough), but the club's minimum
+            // power is always imparted so a struck shot never just dies on the ground.
+            float maxSpeed = Mathf.Max(club.minLaunchSpeed, club.maxLaunchSpeed * powerMultiplier);
+            float speed = Mathf.Lerp(club.minLaunchSpeed, maxSpeed, Mathf.Clamp01(power01));
 
-            // Wake the ball into dynamic, anti-tunnel (Continuous) physics for the shot.
+            // Wake the ball into dynamic, anti-tunnel (Continuous) physics for the shot,
+            // and lift it just clear of the ground so a resting lie can't absorb the launch.
             _rb.isKinematic = false;
             _rb.collisionDetectionMode = CollisionDetectionMode.Continuous;
+            transform.position += Vector3.up * 0.02f;
             _rb.linearVelocity = Vector3.zero;
             _rb.angularVelocity = Vector3.zero;
             // Impulse = m * dv, so the velocity change is exactly launchDir * speed.
@@ -108,6 +131,8 @@ namespace Greenside
             _launchTime = Time.time;
             _carryRecorded = false;
             _carryYards = -1f;
+            _grounded = false;   // airborne until we actually land; stops ground-roll
+                                 // damping from killing horizontal speed mid-flight
             State = BallState.InPlay;
             OnLaunched?.Invoke();
         }
@@ -115,6 +140,16 @@ namespace Greenside
         private void FixedUpdate()
         {
             if (State != BallState.InPlay) return;
+
+            // Hole-out: over the cup, near green height, and slow enough to drop in.
+            if (_hasHole
+                && HorizontalDistance(transform.position, _pinPos) <= _cupRadius
+                && Mathf.Abs(transform.position.y - _pinPos.y) < 0.6f
+                && _rb.linearVelocity.magnitude < tuning.holeCaptureSpeed)
+            {
+                HoleOut();
+                return;
+            }
 
             // Magnus-style lateral force: proportional to spin x velocity.
             Vector3 v = _rb.linearVelocity;
@@ -141,11 +176,7 @@ namespace Greenside
             {
                 _restTimer += Time.fixedDeltaTime;
                 if (_restTimer >= tuning.restTime)
-                {
-                    State = BallState.Resting;
-                    float carryYards = HorizontalDistance(_launchPosition, transform.position) * tuning.yardsPerMeter;
-                    OnRest?.Invoke(carryYards);
-                }
+                    ComeToRest();
             }
             else
             {
@@ -199,11 +230,84 @@ namespace Greenside
             ResetToTee();
         }
 
+        /// <summary>Tell the ball where the cup is so it can detect a hole-out.</summary>
+        public void SetHole(Vector3 pinPos, float cupRadius)
+        {
+            _pinPos = pinPos;
+            _cupRadius = cupRadius;
+            _hasHole = true;
+        }
+
+        /// <summary>Freeze the ball at its current lie so the next swing plays from here.</summary>
+        private void ComeToRest()
+        {
+            // Snap cleanly onto the surface so the lie isn't embedded in the terrain.
+            // Disable the ball's own collider for the cast so the ray finds the
+            // terrain, not the top of the ball (which would lift it a diameter each time).
+            if (_col != null) _col.enabled = false;
+            bool foundGround = Physics.Raycast(transform.position + Vector3.up * 2f, Vector3.down, out RaycastHit hit, 6f);
+            if (_col != null) _col.enabled = true;
+            if (foundGround)
+                transform.position = hit.point + Vector3.up * _radius;
+
+            _rb.collisionDetectionMode = CollisionDetectionMode.Discrete;
+            _rb.linearVelocity = Vector3.zero;
+            _rb.angularVelocity = Vector3.zero;
+            _rb.isKinematic = true;
+            State = BallState.Resting;
+            float totalYards = HorizontalDistance(_launchPosition, transform.position) * tuning.yardsPerMeter;
+            OnRest?.Invoke(totalYards);
+        }
+
+        /// <summary>Drop the ball into the cup and mark the hole complete.</summary>
+        private void HoleOut()
+        {
+            _rb.collisionDetectionMode = CollisionDetectionMode.Discrete;
+            _rb.linearVelocity = Vector3.zero;
+            _rb.angularVelocity = Vector3.zero;
+            _rb.isKinematic = true;
+            transform.position = _pinPos;
+            State = BallState.Holed;
+            OnHoled?.Invoke();
+        }
+
         private static float HorizontalDistance(Vector3 a, Vector3 b)
         {
             a.y = 0f;
             b.y = 0f;
             return Vector3.Distance(a, b);
+        }
+
+        /// <summary>
+        /// Carry (flat-ground, in yards) of a full-power, dead-straight shot with this
+        /// club, computed by simulating the same flight physics the ball uses (gravity
+        /// + the linear drag; no Magnus on a straight shot). This always matches the
+        /// current tuning, so it reflects exactly what a full swing lands.
+        /// </summary>
+        public static float EstimateFlatCarryYards(Club club, SwingTuning tuning)
+        {
+            if (club == null || tuning == null || club.maxLaunchSpeed <= 0.01f) return 0f;
+
+            float dt = Time.fixedDeltaTime;
+            float gravityY = Physics.gravity.y;                        // ~ -9.81
+            float drag = Mathf.Clamp01(1f - tuning.linearDamping * dt);
+            float rad = club.loftDegrees * Mathf.Deg2Rad;
+
+            float vx = club.maxLaunchSpeed * Mathf.Cos(rad);
+            float vy = club.maxLaunchSpeed * Mathf.Sin(rad);
+            float px = 0f, py = 0f;
+
+            // Semi-implicit Euler matching Unity: gravity, then damping, then integrate.
+            for (int i = 0; i < 20000; i++)
+            {
+                vy += gravityY * dt;
+                vx *= drag;
+                vy *= drag;
+                px += vx * dt;
+                py += vy * dt;
+                if (py <= 0f && vy < 0f) break;   // returned to launch height, descending
+            }
+            return px * tuning.yardsPerMeter;
         }
     }
 }

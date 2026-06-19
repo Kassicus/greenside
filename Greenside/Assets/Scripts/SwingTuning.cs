@@ -29,10 +29,12 @@ namespace Greenside
         public float magnusCoefficient = 0.0015f;
 
         [Header("Swing gesture (screen-space, resolution independent)")]
-        [Tooltip("Up-stroke speed in screen-heights/sec that maps to full power.")]
-        public float referenceSwipeSpeed = 3.0f;
-        [Tooltip("Up-stroke shorter than this fraction of screen height is ignored as a tap.")]
-        [Range(0f, 0.5f)] public float minUpStrokeFraction = 0.06f;
+        [Tooltip("Down-stroke (backswing) length as a fraction of screen height that maps to full power. Longer pull-back = more power.")]
+        [Range(0.1f, 1f)] public float referenceBackswing = 0.4f;
+        [Tooltip("Down-stroke shorter than this fraction of screen height is ignored (not a swing).")]
+        [Range(0f, 0.5f)] public float minBackswingFraction = 0.05f;
+        [Tooltip("Up-stroke shorter than this fraction of screen height won't fire the shot (incomplete through-swing).")]
+        [Range(0f, 0.5f)] public float minUpStrokeFraction = 0.04f;
 
         [Header("Ball physics")]
         [Tooltip("Golf ball mass in kg (regulation ~0.0459 kg).")]
@@ -52,6 +54,10 @@ namespace Greenside
         public float restSpeed = 0.3f;
         [Tooltip("...once it has stayed below restSpeed for this long (seconds).")]
         public float restTime = 0.6f;
+
+        [Header("Hole")]
+        [Tooltip("Max ball speed (m/s) at which it drops into the cup instead of rolling over.")]
+        public float holeCaptureSpeed = 3.5f;
 
         [Header("Aim")]
         [Tooltip("Aim rotation speed in degrees/sec (left/right arrows in the prototype).")]
