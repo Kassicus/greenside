@@ -38,6 +38,7 @@ namespace Greenside
             {
                 ball.OnLaunched += HandleLaunched;
                 ball.OnHoled += HandleHoled;
+                ball.OnPenalty += HandlePenalty;
             }
         }
 
@@ -47,6 +48,7 @@ namespace Greenside
             {
                 ball.OnLaunched -= HandleLaunched;
                 ball.OnHoled -= HandleHoled;
+                ball.OnPenalty -= HandlePenalty;
             }
         }
 
@@ -112,6 +114,11 @@ namespace Greenside
         private void HandleLaunched()
         {
             if (!_roundComplete) _currentStrokes++;
+        }
+
+        private void HandlePenalty()
+        {
+            if (!_roundComplete && !_holeComplete) _currentStrokes++;
         }
 
         private void HandleHoled()

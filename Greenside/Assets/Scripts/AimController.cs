@@ -137,6 +137,15 @@ namespace Greenside
         {
             _lastTotalYards = totalYards;
             _lastCarryYards = ball != null ? ball.CarryYards : -1f;
+
+            // Auto-aim the camera at the pin from the new lie.
+            if (hole != null && ball != null)
+            {
+                Vector3 toPin = hole.PinPosition - ball.transform.position;
+                toPin.y = 0f;
+                if (toPin.sqrMagnitude > 1e-4f)
+                    _headingDeg = Mathf.Atan2(toPin.x, toPin.z) * Mathf.Rad2Deg;
+            }
         }
 
         private void OnGUI()

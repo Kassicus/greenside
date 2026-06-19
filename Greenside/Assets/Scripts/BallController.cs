@@ -27,6 +27,9 @@ namespace Greenside
         /// <summary>Fired when the ball is holed.</summary>
         public event Action OnHoled;
 
+        /// <summary>Fired when the ball enters a hazard (water/OB); the listener adds a penalty stroke.</summary>
+        public event Action OnPenalty;
+
         /// <summary>Live horizontal distance from the launch point, in yards (0 at the tee).</summary>
         public float DistanceYards =>
             (tuning != null ? tuning.yardsPerMeter : 1f) * HorizontalDistance(_launchPosition, transform.position);
@@ -50,6 +53,7 @@ namespace Greenside
         private Vector3 _pinPos;
         private float _cupRadius;
         private bool _hasHole;
+        private HoleGenerator _hole;
         private float _radius = 0.2f;
         private Collider _col;
         private float _checkOnLanding;
@@ -157,6 +161,15 @@ namespace Greenside
                 return;
             }
 
+            // Hazards: water or out of bounds -> penalty stroke + drop at the previous lie.
+            // Short grace after launch so a near-edge lie doesn't re-penalize instantly.
+            if (_hole != null && Time.time - _launchTime > 0.15f
+                && (_hole.IsOutOfBounds(transform.position) || _hole.IsInWater(transform.position)))
+            {
+                DropAfterHazard();
+                return;
+            }
+
             // Magnus-style lateral force: proportional to spin x velocity.
             Vector3 v = _rb.linearVelocity;
             Vector3 w = _rb.angularVelocity;
@@ -166,12 +179,13 @@ namespace Greenside
                 _rb.AddForce(magnus, ForceMode.Acceleration);
             }
 
-            // Ground roll-out damping (interim until per-surface physics in Phase 6).
-            // Only while touching the ground and not ascending, so it tames roll
-            // without ever affecting the carry (the airborne portion of the shot).
+            // Ground roll-out damping, scaled by the lie's surface (greens run, rough
+            // and sand grab). Only while touching the ground and not ascending, so it
+            // never affects the carry (the airborne portion of the shot).
             if (_grounded && _rb.linearVelocity.y < 0.5f)
             {
-                float f = Mathf.Clamp01(1f - tuning.groundRollDrag * Time.fixedDeltaTime);
+                float drag = tuning.groundRollDrag * (_hole != null ? _hole.RollFactorAt(transform.position) : 1f);
+                float f = Mathf.Clamp01(1f - drag * Time.fixedDeltaTime);
                 Vector3 lv = _rb.linearVelocity;
                 _rb.linearVelocity = new Vector3(lv.x * f, lv.y, lv.z * f);
                 _rb.angularVelocity *= f;
@@ -196,18 +210,28 @@ namespace Greenside
             // touches down after launch. A small grace period skips the contact
             // the ball is already resting in at launch. Putts that never leave the
             // ground fire no fresh collision, so carry stays unrecorded (-1).
-            if (State != BallState.InPlay || _carryRecorded) return;
-            if (Time.time - _launchTime < 0.1f) return;
-            _carryRecorded = true;
-            _carryYards = HorizontalDistance(_launchPosition, transform.position) * tuning.yardsPerMeter;
+            if (State != BallState.InPlay) return;
+            if (Time.time - _launchTime < 0.1f) return;   // ignore the launch-frame contact
 
-            // Backspin check: kill some forward speed on the first bounce (flop > pitch > chip).
-            if (_checkOnLanding > 0f)
+            // First landing: record carry, then the backspin check (flop > pitch > chip).
+            if (!_carryRecorded)
             {
-                Vector3 v = _rb.linearVelocity;
-                float keep = 1f - _checkOnLanding;
-                _rb.linearVelocity = new Vector3(v.x * keep, v.y, v.z * keep);
+                _carryRecorded = true;
+                _carryYards = HorizontalDistance(_launchPosition, transform.position) * tuning.yardsPerMeter;
+                if (_checkOnLanding > 0f)
+                {
+                    Vector3 vc = _rb.linearVelocity;
+                    float keep = 1f - _checkOnLanding;
+                    _rb.linearVelocity = new Vector3(vc.x * keep, vc.y, vc.z * keep);
+                }
             }
+
+            // Every bounce bleeds a little speed and suppresses the vertical, so a low,
+            // fast drive settles into a roll and stops instead of skipping forever.
+            const float horizontalKeep = 0.85f;
+            const float verticalKeep = 0.3f;
+            Vector3 v = _rb.linearVelocity;
+            _rb.linearVelocity = new Vector3(v.x * horizontalKeep, v.y * verticalKeep, v.z * horizontalKeep);
         }
 
         private void OnCollisionStay(Collision collision)
@@ -244,11 +268,13 @@ namespace Greenside
             ResetToTee();
         }
 
-        /// <summary>Tell the ball where the cup is so it can detect a hole-out.</summary>
-        public void SetHole(Vector3 pinPos, float cupRadius)
+        /// <summary>Tell the ball about the hole — the cup plus the generator, used for
+        /// hole-out, per-surface roll, and hazard (water/OB) detection.</summary>
+        public void SetHole(Vector3 pinPos, float cupRadius, HoleGenerator hole)
         {
             _pinPos = pinPos;
             _cupRadius = cupRadius;
+            _hole = hole;
             _hasHole = true;
         }
 
@@ -283,6 +309,15 @@ namespace Greenside
             transform.position = _pinPos;
             State = BallState.Holed;
             OnHoled?.Invoke();
+        }
+
+        /// <summary>Hazard: add a penalty stroke and drop the ball back at the lie it
+        /// was last played from.</summary>
+        private void DropAfterHazard()
+        {
+            OnPenalty?.Invoke();
+            transform.position = _launchPosition;
+            ComeToRest();   // snap to surface, freeze, fire OnRest (auto-aim)
         }
 
         private static float HorizontalDistance(Vector3 a, Vector3 b)

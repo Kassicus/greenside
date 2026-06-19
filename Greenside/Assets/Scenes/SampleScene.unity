@@ -185,7 +185,7 @@ MonoBehaviour:
     AngularDampingMode: 0
     RotationDamping: {x: 1, y: 1, z: 1}
     QuaternionDamping: 1
-  FollowOffset: {x: 0, y: 5, z: -12}
+  FollowOffset: {x: 0, y: 2.5, z: -6}
 --- !u!114 &105017039
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -237,8 +237,8 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 105017036}
   serializedVersion: 2
-  m_LocalRotation: {x: 0.19611612, y: -0.000000002083366, z: 4.166732e-10, w: 0.9805807}
-  m_LocalPosition: {x: 0.11243, y: 5.0787, z: -11.88757}
+  m_LocalRotation: {x: 0.19611613, y: 0.0000000073058946, z: -0.000000001461179, w: 0.9805807}
+  m_LocalPosition: {x: 0.11243, y: 2.5787, z: -5.88757}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -647,7 +647,7 @@ Transform:
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0.2, z: 0}
-  m_LocalScale: {x: 0.4, y: 0.4, z: 0.4}
+  m_LocalScale: {x: 0.2, y: 0.2, z: 0.2}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
@@ -863,15 +863,21 @@ MonoBehaviour:
   teePegHeight: 0.35
   cupRadius: 0.6
   roughPowerMultiplier: 0.6
+  sandPowerMultiplier: 0.4
+  bunkerDepth: 2.2
   cellSize: 4
-  noiseAmplitude: 2.5
+  gridJitter: 0.4
+  surfaceBlend: 6
+  noiseAmplitude: 7
   noiseScale: 0.018
-  fairwayFlatten: 0.25
+  fairwayFlatten: 0.45
   greenFlatten: 0.05
   transitionBand: 8
+  elevationRange: 15
   fairwayColor: {r: 0.3, g: 0.55, b: 0.2, a: 1}
   greenColor: {r: 0.4, g: 0.7, b: 0.27, a: 1}
   roughColor: {r: 0.2, g: 0.38, b: 0.14, a: 1}
+  sandColor: {r: 0.82, g: 0.74, b: 0.52, a: 1}
   ball: {fileID: 745715118}
   previewCamera: {fileID: 724236051}
   previewDuration: 3
