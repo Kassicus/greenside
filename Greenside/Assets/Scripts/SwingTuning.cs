@@ -2,6 +2,22 @@ using UnityEngine;
 
 namespace Greenside
 {
+    /// <summary>A short-game shot preset (Full / Pitch / Chip / Flop): adjusts loft,
+    /// power range, backspin, and how hard the ball checks on landing.</summary>
+    [System.Serializable]
+    public struct ShotModifier
+    {
+        public string name;
+        [Tooltip("Degrees added to (or subtracted from) the club loft.")]
+        public float loftDelta;
+        [Tooltip("Multiplier on the club's power range — finesse shots are softer.")]
+        public float powerScale;
+        [Tooltip("Backspin (rad/s) for Magnus lift — higher floats it and holds the green.")]
+        public float backspin;
+        [Tooltip("Fraction of forward speed killed on the first bounce (check). 0 = runs out.")]
+        [Range(0f, 1f)] public float checkOnLanding;
+    }
+
     /// <summary>
     /// Data-driven tuning knobs for the swing prototype (Phase 2).
     /// Per the project rules, tuning values live in a ScriptableObject rather
@@ -66,5 +82,20 @@ namespace Greenside
         [Header("Display")]
         [Tooltip("Meters-to-yards factor for on-screen distances (we display yards).")]
         public float yardsPerMeter = 1.09361f;
+
+        [Header("Shot types (1-4 selects Full / Pitch / Chip / Flop)")]
+        public ShotModifier[] shotTypes = DefaultShotTypes();
+
+        private static ShotModifier[] DefaultShotTypes() => new[]
+        {
+            new ShotModifier { name = "Full",  loftDelta = 0f,   powerScale = 1.00f, backspin = 8f,  checkOnLanding = 0.10f },
+            new ShotModifier { name = "Pitch", loftDelta = 8f,   powerScale = 0.60f, backspin = 22f, checkOnLanding = 0.45f },
+            new ShotModifier { name = "Chip",  loftDelta = -5f,  powerScale = 0.45f, backspin = 4f,  checkOnLanding = 0.05f },
+            new ShotModifier { name = "Flop",  loftDelta = 20f,  powerScale = 0.55f, backspin = 35f, checkOnLanding = 0.75f },
+        };
+
+        // Existing assets keep an empty array after a script change, so this fills them.
+        [ContextMenu("Reset Shot Types to Defaults")]
+        private void ResetShotTypes() => shotTypes = DefaultShotTypes();
     }
 }

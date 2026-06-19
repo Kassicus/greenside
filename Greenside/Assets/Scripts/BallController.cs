@@ -52,6 +52,7 @@ namespace Greenside
         private bool _hasHole;
         private float _radius = 0.2f;
         private Collider _col;
+        private float _checkOnLanding;
 
         private void Awake()
         {
@@ -88,7 +89,7 @@ namespace Greenside
         /// (+ = slice/right, - = hook/left); powerMultiplier caps the top-end speed
         /// for the lie surface (e.g. rough) without reducing the club's minimum.
         /// </summary>
-        public void Launch(float power01, float signedCurve, Vector3 headingFlat, Club club, float powerMultiplier)
+        public void Launch(float power01, float signedCurve, Vector3 headingFlat, Club club, float powerMultiplier, ShotModifier shot)
         {
             if (club == null)
             {
@@ -99,17 +100,20 @@ namespace Greenside
             headingFlat.y = 0f;
             if (headingFlat.sqrMagnitude < 1e-4f) headingFlat = Vector3.forward;
             headingFlat.Normalize();
+            Vector3 right = Vector3.Cross(Vector3.up, headingFlat);
 
-            // Tilt the heading upward by the club's loft: horizontal component along
-            // the heading plus a vertical component. (Building it from cos/sin avoids
-            // any axis-handedness confusion — it always launches upward.)
-            float loftRad = club.loftDegrees * Mathf.Deg2Rad;
+            // Tilt the heading upward by the club loft plus the shot type's loft delta.
+            float loftDeg = Mathf.Clamp(club.loftDegrees + shot.loftDelta, 0f, 85f);
+            float loftRad = loftDeg * Mathf.Deg2Rad;
             Vector3 launchDir = headingFlat * Mathf.Cos(loftRad) + Vector3.up * Mathf.Sin(loftRad);
 
-            // The lie multiplier caps the top end (e.g. rough), but the club's minimum
-            // power is always imparted so a struck shot never just dies on the ground.
-            float maxSpeed = Mathf.Max(club.minLaunchSpeed, club.maxLaunchSpeed * powerMultiplier);
-            float speed = Mathf.Lerp(club.minLaunchSpeed, maxSpeed, Mathf.Clamp01(power01));
+            // Power range scaled by the shot type (finesse shots are softer); the lie
+            // multiplier additionally caps the top end (e.g. rough). The (scaled) club
+            // minimum is always imparted so a struck shot never just dies.
+            float scale = shot.powerScale <= 0f ? 1f : shot.powerScale;
+            float minSpeed = club.minLaunchSpeed * scale;
+            float maxSpeed = Mathf.Max(minSpeed, club.maxLaunchSpeed * scale * powerMultiplier);
+            float speed = Mathf.Lerp(minSpeed, maxSpeed, Mathf.Clamp01(power01));
 
             // Wake the ball into dynamic, anti-tunnel (Continuous) physics for the shot,
             // and lift it just clear of the ground so a resting lie can't absorb the launch.
@@ -121,10 +125,12 @@ namespace Greenside
             // Impulse = m * dv, so the velocity change is exactly launchDir * speed.
             _rb.AddForce(launchDir * speed * _rb.mass, ForceMode.Impulse);
 
-            // Sidespin about the up axis, scaled by the club (putter = 0 -> no curve).
-            // Magnus (below) turns it into curve.
-            float spin = signedCurve * tuning.maxSidespin * club.spinFactor;
-            _rb.AddTorque(Vector3.up * spin, ForceMode.VelocityChange);
+            // Sidespin (curve) about the up axis + backspin about the right axis. Magnus
+            // (in FixedUpdate) turns sidespin into curve and backspin into lift.
+            float sidespin = signedCurve * tuning.maxSidespin * club.spinFactor;
+            _rb.AddTorque(Vector3.up * sidespin, ForceMode.VelocityChange);
+            _rb.AddTorque(-right * shot.backspin, ForceMode.VelocityChange);
+            _checkOnLanding = Mathf.Clamp01(shot.checkOnLanding);
 
             _launchPosition = transform.position;
             _restTimer = 0f;
@@ -194,6 +200,14 @@ namespace Greenside
             if (Time.time - _launchTime < 0.1f) return;
             _carryRecorded = true;
             _carryYards = HorizontalDistance(_launchPosition, transform.position) * tuning.yardsPerMeter;
+
+            // Backspin check: kill some forward speed on the first bounce (flop > pitch > chip).
+            if (_checkOnLanding > 0f)
+            {
+                Vector3 v = _rb.linearVelocity;
+                float keep = 1f - _checkOnLanding;
+                _rb.linearVelocity = new Vector3(v.x * keep, v.y, v.z * keep);
+            }
         }
 
         private void OnCollisionStay(Collision collision)
@@ -284,17 +298,17 @@ namespace Greenside
         /// + the linear drag; no Magnus on a straight shot). This always matches the
         /// current tuning, so it reflects exactly what a full swing lands.
         /// </summary>
-        public static float EstimateFlatCarryYards(Club club, SwingTuning tuning)
+        public static float EstimateFlatCarryYards(float maxSpeed, float loftDeg, SwingTuning tuning)
         {
-            if (club == null || tuning == null || club.maxLaunchSpeed <= 0.01f) return 0f;
+            if (tuning == null || maxSpeed <= 0.01f) return 0f;
 
             float dt = Time.fixedDeltaTime;
             float gravityY = Physics.gravity.y;                        // ~ -9.81
             float drag = Mathf.Clamp01(1f - tuning.linearDamping * dt);
-            float rad = club.loftDegrees * Mathf.Deg2Rad;
+            float rad = loftDeg * Mathf.Deg2Rad;
 
-            float vx = club.maxLaunchSpeed * Mathf.Cos(rad);
-            float vy = club.maxLaunchSpeed * Mathf.Sin(rad);
+            float vx = maxSpeed * Mathf.Cos(rad);
+            float vy = maxSpeed * Mathf.Sin(rad);
             float px = 0f, py = 0f;
 
             // Semi-implicit Euler matching Unity: gravity, then damping, then integrate.

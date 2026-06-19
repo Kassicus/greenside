@@ -4,18 +4,14 @@ using UnityEngine.InputSystem;
 namespace Greenside
 {
     /// <summary>
-    /// Phase 2-4 glue + minimal aim. Holds a heading (yaw), pivots the camera to it,
+    /// Swing/aim glue + swing HUD. Holds a heading (yaw), pivots the camera to it,
     /// feeds swings from SwingInput into the BallController using the Bag's selected
-    /// Club, counts strokes, and draws a lightweight prototype HUD.
+    /// Club, and draws the swing HUD. Round flow and scoring live in RoundManager.
     ///
-    /// Play-it-where-it-lies: after a shot the ball stays at its resting spot and the
-    /// next swing plays from there. R restarts the hole from the tee.
-    ///
-    /// Prototype controls:
+    /// Controls:
     ///   Left / Right arrow : rotate aim (the camera orbits the ball)
     ///   [ / ]              : change club (handled by the Bag component)
-    ///   R                  : restart the hole from the tee
-    ///   Swipe down-then-up : swing (mouse drag works in the Editor)
+    ///   Drag down then up  : swing — down-stroke sets power, up-stroke sets curve
     /// </summary>
     public class AimController : MonoBehaviour
     {
@@ -30,8 +26,7 @@ namespace Greenside
         public Transform cameraPivot;
 
         private float _headingDeg;
-        private int _strokes;
-        private bool _holed;
+        private int _shotTypeIndex;
         private float _selectedCarryYards = -1f;
         private float _lastPower;
         private float _lastCurve;
@@ -40,24 +35,41 @@ namespace Greenside
 
         public Vector3 AimDirection => Quaternion.Euler(0f, _headingDeg, 0f) * Vector3.forward;
 
+        /// <summary>Reset aim, shot type and shot readouts for the start of a hole.</summary>
+        public void ResetForNewHole()
+        {
+            _headingDeg = 0f;
+            _shotTypeIndex = 0;
+            _lastPower = 0f;
+            _lastCurve = 0f;
+            _lastCarryYards = -1f;
+            _lastTotalYards = -1f;
+        }
+
+        private ShotModifier CurrentShot()
+        {
+            var shots = tuning != null ? tuning.shotTypes : null;
+            if (shots != null && shots.Length > 0)
+                return shots[Mathf.Clamp(_shotTypeIndex, 0, shots.Length - 1)];
+            return new ShotModifier { name = "Full", powerScale = 1f };
+        }
+
+        private void SetShot(int index)
+        {
+            int n = (tuning != null && tuning.shotTypes != null) ? tuning.shotTypes.Length : 0;
+            if (index >= 0 && index < n) _shotTypeIndex = index;
+        }
+
         private void OnEnable()
         {
             if (input != null) input.OnSwing += HandleSwing;
-            if (ball != null)
-            {
-                ball.OnRest += HandleRest;
-                ball.OnHoled += HandleHoled;
-            }
+            if (ball != null) ball.OnRest += HandleRest;
         }
 
         private void OnDisable()
         {
             if (input != null) input.OnSwing -= HandleSwing;
-            if (ball != null)
-            {
-                ball.OnRest -= HandleRest;
-                ball.OnHoled -= HandleHoled;
-            }
+            if (ball != null) ball.OnRest -= HandleRest;
         }
 
         private void Update()
@@ -67,12 +79,23 @@ namespace Greenside
             {
                 float dir = (kb.rightArrowKey.isPressed ? 1f : 0f) - (kb.leftArrowKey.isPressed ? 1f : 0f);
                 _headingDeg += dir * tuning.aimRotateSpeed * Time.deltaTime;
-                if (kb.rKey.wasPressedThisFrame) RestartHole();
+
+                if (kb.digit1Key.wasPressedThisFrame) SetShot(0);
+                if (kb.digit2Key.wasPressedThisFrame) SetShot(1);
+                if (kb.digit3Key.wasPressedThisFrame) SetShot(2);
+                if (kb.digit4Key.wasPressedThisFrame) SetShot(3);
             }
 
-            // Full-power carry of the selected club, computed from the live tuning.
+            // Full-power carry of the selected club + shot type, from the live tuning.
             Club current = bag != null ? bag.Current : null;
-            _selectedCarryYards = current != null ? BallController.EstimateFlatCarryYards(current, tuning) : -1f;
+            if (current != null)
+            {
+                ShotModifier shot = CurrentShot();
+                float scale = shot.powerScale <= 0f ? 1f : shot.powerScale;
+                _selectedCarryYards = BallController.EstimateFlatCarryYards(
+                    current.maxLaunchSpeed * scale, current.loftDegrees + shot.loftDelta, tuning);
+            }
+            else _selectedCarryYards = -1f;
 
             if (ball != null)
                 Debug.DrawRay(ball.transform.position, AimDirection * 5f, Color.cyan);
@@ -80,9 +103,8 @@ namespace Greenside
 
         private void LateUpdate()
         {
-            // Keep the camera pivot on the ball and turned to the aim heading. In
-            // LateUpdate so it reads the ball's final (interpolated) position for the
-            // frame; the Cinemachine camera follows it from behind.
+            // Keep the camera pivot on the ball and turned to the aim heading (read in
+            // LateUpdate for the ball's final interpolated position this frame).
             if (cameraPivot != null && ball != null)
             {
                 cameraPivot.position = ball.transform.position;
@@ -103,13 +125,12 @@ namespace Greenside
                 return;
             }
 
-            _strokes++;
             _lastPower = power01;
             _lastCurve = signedCurve;
             _lastCarryYards = -1f;
             _lastTotalYards = -1f;
             float powerMultiplier = hole != null ? hole.PowerMultiplierAt(ball.transform.position) : 1f;
-            ball.Launch(power01, signedCurve, AimDirection, club, powerMultiplier);
+            ball.Launch(power01, signedCurve, AimDirection, club, powerMultiplier, CurrentShot());
         }
 
         private void HandleRest(float totalYards)
@@ -118,25 +139,11 @@ namespace Greenside
             _lastCarryYards = ball != null ? ball.CarryYards : -1f;
         }
 
-        private void HandleHoled()
-        {
-            _holed = true;
-        }
-
-        private void RestartHole()
-        {
-            _strokes = 0;
-            _holed = false;
-            _lastCarryYards = -1f;
-            _lastTotalYards = -1f;
-            if (ball != null) ball.ResetToTee();
-        }
-
         private void OnGUI()
         {
             const float pad = 12f;
             const float w = 304f;
-            GUI.Box(new Rect(pad, pad, w, 210f), "Greenside");
+            GUI.Box(new Rect(pad, pad, w, 238f), "Greenside");
 
             float x = pad + 14f;
             float y = pad + 30f;
@@ -148,6 +155,21 @@ namespace Greenside
             string clubName = club != null ? $"{club.displayName}  ({club.loftDegrees:0}°)" : "—";
             GUI.Label(new Rect(x, y, lw, 20f), $"Club:    {clubName}    ([ ])"); y += 22f;
 
+            // Shot-type selector (press 1-4 or click).
+            var shots = tuning != null ? tuning.shotTypes : null;
+            if (shots != null && shots.Length > 0)
+            {
+                float bw = lw / shots.Length;
+                for (int i = 0; i < shots.Length; i++)
+                {
+                    Color prevBg = GUI.backgroundColor;
+                    if (i == _shotTypeIndex) GUI.backgroundColor = Color.yellow;
+                    if (GUI.Button(new Rect(x + i * bw, y, bw - 3f, 22f), shots[i].name)) SetShot(i);
+                    GUI.backgroundColor = prevBg;
+                }
+                y += 26f;
+            }
+
             // That club's full-power carry (computed from the physics tuning).
             string carry = _selectedCarryYards >= 1f ? $"{_selectedCarryYards:0} yd" : "—";
             GUI.Label(new Rect(x, y, lw, 20f), $"Carry:   {carry}"); y += 22f;
@@ -156,8 +178,7 @@ namespace Greenside
             float toPin = ball != null ? ball.DistanceToPinYards : -1f;
             GUI.Label(new Rect(x, y, lw, 20f), $"To pin:  {(toPin >= 0f ? $"{toPin:0} yd" : "—")}"); y += 28f;
 
-            // Live power meter — fills with the power being set while swinging, then
-            // holds the last shot's power.
+            // Live power meter — fills while pulling down (backswing), locks at reversal.
             bool swinging = input != null && input.IsSwiping;
             float power = swinging ? input.LivePower : _lastPower;
             GUI.Label(new Rect(x, y, 48f, 20f), "Power");
@@ -167,25 +188,18 @@ namespace Greenside
             GUI.Box(new Rect(barX, y, barW * Mathf.Clamp01(power), 18f), GUIContent.none);
             GUI.Label(new Rect(barX + barW + 6f, y, 48f, 20f), $"{power * 100f:0}%"); y += 30f;
 
-            // Secondary debug info.
             string lie = (hole != null && ball != null) ? hole.SurfaceAtWorld(ball.transform.position).ToString() : "—";
-            GUI.Label(new Rect(x, y, lw, 20f), $"Strokes: {_strokes}      Lie: {lie}"); y += 22f;
+            GUI.Label(new Rect(x, y, lw, 20f), $"Lie: {lie}"); y += 22f;
 
-            if (_holed)
-            {
-                GUI.Label(new Rect(x, y, lw, 20f), $"HOLED in {_strokes}!"); y += 22f;
-            }
-            else if (_lastTotalYards >= 0f)
-            {
-                string shape = Mathf.Abs(_lastCurve) < 0.01f ? "straight"
-                             : _lastCurve > 0f ? $"slice {_lastCurve * 100f:0}%"
-                             : $"hook {-_lastCurve * 100f:0}%";
-                string c = _lastCarryYards >= 0f ? $"{_lastCarryYards:0}" : "—";
-                GUI.Label(new Rect(x, y, lw, 20f), $"Last: carry {c} / total {_lastTotalYards:0} yd, {shape}"); y += 22f;
-            }
-            else y += 22f;
+            string shape = Mathf.Abs(_lastCurve) < 0.01f ? "straight"
+                         : _lastCurve > 0f ? $"slice {_lastCurve * 100f:0}%"
+                         : $"hook {-_lastCurve * 100f:0}%";
+            string lastTxt = _lastTotalYards >= 0f
+                ? $"Last: {(_lastCarryYards >= 0f ? $"{_lastCarryYards:0}" : "—")} / {_lastTotalYards:0} yd, {shape}"
+                : "Last: —";
+            GUI.Label(new Rect(x, y, lw, 20f), lastTxt); y += 22f;
 
-            GUI.Label(new Rect(x, y, lw, 20f), "Down = power, up = curve    ←/→ aim    R restart");
+            GUI.Label(new Rect(x, y, lw, 20f), "Down = power, up = curve    ←/→ aim");
         }
     }
 }

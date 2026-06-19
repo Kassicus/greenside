@@ -93,7 +93,24 @@ namespace Greenside
 
         private void Start()
         {
-            if (randomizeSeedOnPlay) seed = (int)(System.DateTime.Now.Ticks & 0x7fffffff);
+            // If a RoundManager is present it drives every hole; otherwise build one
+            // hole so the generator still works standalone.
+            if (FindAnyObjectByType<RoundManager>() == null)
+            {
+                if (randomizeSeedOnPlay) seed = (int)(System.DateTime.Now.Ticks & 0x7fffffff);
+                BuildHole(seed, holeLength);
+            }
+        }
+
+        /// <summary>
+        /// Build a specific hole: generate the terrain for the given seed and length,
+        /// tee up the ball, set the cup, and play the preview. Called per hole by the
+        /// RoundManager.
+        /// </summary>
+        public void BuildHole(int holeSeed, float length)
+        {
+            seed = holeSeed;
+            holeLength = length;
             Generate();
             PlaceBallOnTee();
             if (ball != null) ball.SetHole(_pinPos, cupRadius);
